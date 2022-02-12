@@ -13,7 +13,7 @@ Filters by location using Activity,etc codes
 
 import pandas as pd
 pd.set_option("max_columns",None)
-df = pd.read_csv(r"C:\Users\csucuogl\Desktop\WORK\USFS_PH2\Data\NYC_990\eo_ny.csv")
+df = pd.read_csv(r"C:\Users\csucuogl\Documents\GitHub\STEW_EO_Extract\DATA\eo_ny.csv")
 
 remove = ['ICO','TAX_PERIOD','ASSET_CD','INCOME_CD','FILING_REQ_CD','PF_FILING_REQ_CD','ACCT_PD','SORT_NAME']
 df = df.drop( remove, axis = 1)
@@ -29,10 +29,11 @@ df.head()
 import geopandas as gpd
 zips = gpd.read_file( r"C:\Users\csucuogl\Desktop\DATA\NYC\ZIP_CODE_040114\ZIP_CODE_040114.shp")
 zips = zips[['ZIPCODE','PO_NAME','COUNTY']]
+zips = zips.drop_duplicates(keep='first')
 zips.head()
 
 df = df[ df["ZIP_Short"].isin( zips['ZIPCODE'] )]
-#df = df.join(zips.set_index("ZIPCODE"),on="ZIP_Short")
+df = df.join(zips.set_index("ZIPCODE"),on="ZIP_Short")
 
 print( "{} groups are in the list".format(len(df)) )
 df.head()
@@ -55,5 +56,13 @@ print( "{} groups are in the list".format(len(df1)) )
 df1.head()
 
 
+# %% GEOCODE
+# 1. If PO BOX, use the zipcode geos
+# 2. If not, how to deal with Apt Nos and Floor Levels. 
+#To use zipcode shape file, dissovlde geos by zipcode. 
+
+zips = gpd.read_file( r"C:\Users\csucuogl\Desktop\DATA\NYC\ZIP_CODE_040114\ZIP_CODE_040114.shp")
+zips = zips.dissolve(by='ZIPCODE')
+zips.head(10)
 
 # %%
