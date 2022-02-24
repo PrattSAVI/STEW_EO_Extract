@@ -66,6 +66,14 @@ ntee_codes.head(10)
 # NTEE_CD National Taxonomy of Exempt Entities (NTEE) Code 
 # Filter with whichever activity or ntee is full
 
+'''
+Testing how many enteries in our query
+600 groups are in the list NTEE_CD
+405 groups are in the list Act 1
+212 groups are in the list Act 2
+80 groups are in the list Act 3
+'''
+
 df1 = df[ (df['NTEE_CD'].isin( ntee_codes['code'].values )) | (df['act1'].isin( act_codes['code'].values )) | (df['act2'].isin( act_codes['code'].values )) | (df['act3'].isin( act_codes['code'].values ))  ]
 
 print( "{} groups are in the list".format(len(df1)) )
@@ -107,15 +115,16 @@ df1['OrgFocus'] = [", ".join( list(filter(None, r.tolist())) ) for i,r in df1[['
 
 df1[["NAME", 'act1', 'act2', 'act3', "NTEE_CD",'def1','def2','def3','OrgFocus']].sample(15)
 
-#%%
+#%% Correct Address column
 
+# Remove after these
 splitter = [' AVE ',' ST '," STREET " , " AVENUE " , " PLACE "]
 
-df1['address'] = df1['STREET'].str.split(" APT").str[0]
-
-for _ in splitter:
+df1['address'] = df1['STREET'].str.split(" APT").str[0] #Remove APT numbers
+for _ in splitter: # All the others
     df1['address'] = [ " ".join( r.partition(_)[:-1] ) for i,r in df1['address'].iteritems() ]
 
+# Make a proper address 
 df1['address'] = df1['address'] + ", " + df1['PO_NAME'] + ", " + df1['STATE'] + ", " + df1['ZIP_Short']
 
 df1[['STREET','address']].sample(20)
@@ -129,9 +138,6 @@ import geocoder
 remove = 'CITY,FOUNDATION,ORGANIZATION,STATUS,NTEE_CD,COUNTY,def1,def2,def3,act1,act2,act3,ASSET_AMT,INCOME_AMT,REVENUE_AMT,RULING,DEDUCTIBILITY,EIN'.split(",")
 df1 = df1[ df1.columns[ ~df1.columns.isin( remove ) ] ]
 
-df1['lat'] = None
-df1['lon'] = None
-
 lats = []
 lons = []
 count = 0
@@ -142,13 +148,12 @@ for i,r in df1.iterrows():
         lon = loc[0]['long']
     else:
         loc = geocoder.arcgis(r['address']).json
-
         lat = loc['lat']
         lon = loc['lng']
 
     lats.append( lat )
     lons.append( lon )
-    count + count + 1
+    count = count + 1
     if count%50==0: print( "{}".format(count) )
 
 df1['lat'] = lats
@@ -156,26 +161,154 @@ df1['lon'] = lons
 
 df1.sample(10)
 
+#%% GEO DATAFRAME
 
-# %% ID & WY
+import matplotlib.pyplot as plt
+
+gdf = gpd.GeoDataFrame(
+    df1,
+    geometry = gpd.points_from_xy( df1['lon'],df1['lat']),
+    crs = 4326
+)
+
+gdf.to_crs(3857).plot()
+plt.show()
+
+gdf.to_file(
+    r'C:\Users\csucuogl\Documents\GitHub\STEW_EO_Extract\DATA\EO_NYC_Filter.geojson',
+    driver = "GeoJSON",
+    encoding = 'utf-8'
+)
+
+# %% ------------------- ID & WY -> SAME THING
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+
+pd.set_option("max_columns",None)
 
 np_id = pd.read_csv(r"C:\Users\csucuogl\Documents\GitHub\STEW_EO_Extract\DATA\eo_id.csv", dtype={'ACTIVITY': object})
 np_wy = pd.read_csv(r"C:\Users\csucuogl\Documents\GitHub\STEW_EO_Extract\DATA\eo_wy.csv", dtype={'ACTIVITY': object})
 
 #Merge datasets
-np = np_id.append( np_wy )
+nonp = np_id.append( np_wy )
 
 #Clean
-np = np.drop( remove, axis = 1)
-np = np.dropna(how='all',axis =1)
-np['ZIP_Short'] = [r.split("-")[0] for i,r in np['ZIP'].iteritems()]
-np = np.drop_duplicates(subset=['EIN'],keep='first')
+remove = ['ICO','TAX_PERIOD','ASSET_CD','INCOME_CD','FILING_REQ_CD','PF_FILING_REQ_CD','ACCT_PD','SORT_NAME']
+
+nonp = nonp.drop( remove, axis = 1)
+nonp = nonp.dropna(how='all',axis =1)
+nonp['ZIP_Short'] = [r.split("-")[0] for i,r in nonp['ZIP'].iteritems()]
+nonp = nonp.drop_duplicates(subset=['EIN'],keep='first')
 
 #Seperate Activity to individual codes
-np['act1'] = np['ACTIVITY'].str.slice(0,3)
-np['act2'] = np['ACTIVITY'].str.slice(3,6)
-np['act3'] = np['ACTIVITY'].str.slice(6,9)
+nonp['act1'] = nonp['ACTIVITY'].str.slice(0,3)
+nonp['act2'] = nonp['ACTIVITY'].str.slice(3,6)
+nonp['act3'] = nonp['ACTIVITY'].str.slice(6,9)
 
-print( "{} groups are in the list".format(len(np1)) )
-np1.head()
+nonp1 = nonp[ (nonp['NTEE_CD'].isin( ntee_codes['code'].values )) | (nonp['act1'].isin( act_codes['code'].values )) | (nonp['act2'].isin( act_codes['code'].values )) | (nonp['act3'].isin( act_codes['code'].values ))  ].copy()
 
+print( "{} groups are in the list".format(len(nonp1)) )
+nonp1.head()
+
+#%% ID & WY  -> merge definitions
+import numpy as np
+
+nonp1['def1'] = None
+nonp1['def2'] = None
+nonp1['def3'] = None
+
+# !Ntee code but in ACT
+nonp1['def1'] = np.where(
+    nonp1['act1'].isin( act_codes['code'].values ) , #If ntee code is in the list
+    nonp1['act1'].replace( act_codes.set_index("code").to_dict()['definition'] ) ,
+    None
+)
+
+nonp1['def1'] = np.where(
+    nonp1['NTEE_CD'].isin( ntee_codes['code'].values ) , #If ntee code is in the list
+    nonp1['NTEE_CD'].replace( ntee_codes.set_index("code").to_dict()['definition'] ) ,
+    nonp1['def1']
+)
+
+nonp1['def2'] = np.where(
+    nonp1['act2'].isin( act_codes['code'].values ) , #If ntee code is in the list
+    nonp1['act2'].replace( act_codes.set_index("code").to_dict()['definition'] ) ,
+    None
+)
+
+nonp1['def3'] = np.where(
+    nonp1['act3'].isin( act_codes['code'].values ) , #If ntee code is in the list
+    nonp1['act3'].replace( act_codes.set_index("code").to_dict()['definition'] ) ,
+    None
+)
+
+nonp1['OrgFocus'] = [", ".join( list(filter(None, r.tolist())) ) for i,r in nonp1[['def1','def2','def3']].iterrows()]
+
+nonp1[["NAME", 'act1', 'act2', 'act3', "NTEE_CD",'def1','def2','def3','OrgFocus']].sample(15)
+
+#%% ID & WY  -> Fix Address Column
+
+splitter = [' AVE ',' ST '," STREET " , " AVENUE " , " PLACE "]
+
+nonp1['address'] = nonp1['STREET'].str.split(" APT").str[0] #Remove APT numbers
+for _ in splitter: # All the others
+    nonp1['address'] = [ " ".join( r.partition(_)[:-1] ) for i,r in nonp1['address'].iteritems() ]
+
+# Make a proper address 
+nonp1['address'] = nonp1['address'] + ", " + nonp1['CITY'] + ", " + nonp1['STATE'] + ", " + nonp1['ZIP_Short']
+
+nonp1[['STREET','address']].sample(20)
+
+#%% ID & WY  -> Geocode
+
+import zipcodes
+import geocoder
+
+#Simplify Data
+remove = 'CITY,FOUNDATION,ORGANIZATION,STATUS,NTEE_CD,COUNTY,def1,def2,def3,act1,act2,act3,ASSET_AMT,INCOME_AMT,REVENUE_AMT,RULING,DEDUCTIBILITY,EIN'.split(",")
+nonp1 = nonp1[ nonp1.columns[ ~nonp1.columns.isin( remove ) ] ]
+
+lats = []
+lons = []
+count = 0
+for i,r in nonp1.iterrows():
+    if "PO BOX" in r['STREET']: #if address is to a PO BOX
+        loc = zipcodes.matching( r['ZIP'] )
+        lat = loc[0]['lat']
+        lon = loc[0]['long']
+    else:
+        loc = geocoder.arcgis(r['address']).json
+        lat = loc['lat']
+        lon = loc['lng']
+
+    lats.append( lat )
+    lons.append( lon )
+    count = count + 1
+    if count%50==0: print( "{}".format(count) )
+
+nonp1['lat'] = lats
+nonp1['lon'] = lons
+
+nonp1.sample(10)
+
+#%% GEO DATAFRAME
+
+import matplotlib.pyplot as plt
+
+gdf = gpd.GeoDataFrame(
+    nonp1,
+    geometry = gpd.points_from_xy( nonp1['lon'],nonp1['lat']),
+    crs = 4326
+)
+
+gdf.to_crs(3857).plot()
+plt.show()
+
+#%% SAVE
+gdf.to_file(
+    r'C:\Users\csucuogl\Documents\GitHub\STEW_EO_Extract\DATA\EO_WYID_Filter.geojson',
+    driver = "GeoJSON",
+    encoding = 'utf-8'
+)
+# %%
